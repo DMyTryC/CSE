@@ -105,10 +105,6 @@ void* thread_writer(void* data)
 
 int main(int argc, char **argv)
 {
-  FILE *erase = fopen("database.txt", "w");
-  fprintf(erase,"\n%s\n","Debut de fichier");
-  fclose(erase);
-
 
   int nb_reader;
   int nb_writer;
