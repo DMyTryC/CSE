@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-Wall -Werror -g
 LDLIBS=-lpthread
 
-all:	clean read_write_priority_writer read_write_priority_reader read_write_priority_fifo
+all: clean read_write_priority_writer read_write_priority_reader read_write_priority_fifo
 
 
 read_write_priority_writer: read_write_priority_writer.c
@@ -16,4 +16,3 @@ read_write_priority_fifo: read_write_priority_fifo.c
 
 clean:
 	rm -f *.o
-	rm read_write_priority_fifo read_write_priority_writer read_write_priority_reader

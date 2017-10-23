@@ -80,7 +80,7 @@ void reader_lock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
   int id = struct_personal->identifiant;
-  if(struct_priority->nb_reader==0||struct_priority->last_reader+1==id)
+  if(struct_priority->nb_reader==0||struct_priority->last_reader+1!=id)
   {
     while(struct_priority->identifiant_global!=id)
       {
@@ -148,8 +148,8 @@ int main(int argc, char **argv)
 
   init_priority_fifo();
 
-  nb_thread=(int)strtol(argv[1], (char **)NULL, 100);
-
+  nb_thread=(int)strtol(argv[1], (char  **)NULL, 10);
+  printf("%d\n",nb_thread );
   threads = malloc(nb_thread*sizeof(pthread_t));
 
   while(idx_thread!=nb_thread)
