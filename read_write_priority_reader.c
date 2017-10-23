@@ -12,8 +12,7 @@
 
 
 
-pthread_t *threads_writer;
-pthread_t *threads_reader;
+pthread_t *threads;
 
 
 typedef struct struct_priority_reader{
@@ -111,28 +110,20 @@ void* thread_writer(void* data)
 int main(int argc, char **argv)
 {
   srand(time(NULL)) ;
-  int nb_reader;
-  int nb_writer;
+  int nb_thread = 0;
+  int idx_thread= 0;
 
-  if(argc<2)
+
+  if(argc<1)
   {
-    printf("%s","Merci d'entrer le nombre de thread lecteur puis le nombre" );
-    printf("%s\n"," de thread écrivain" );
+    printf("%s","Merci d'entrer le nombre de thread" );
     return 0;
   }
 
 
-  nb_reader = 100;
-  nb_writer = 100;
-  //nb_reader=(int)strtol(argv[1], (char **)NULL, 10);
-  //nb_writer=(int)strtol(argv[2], (char **)NULL, 10);
+  nb_thread=(int)strtol(argv[1], (char **)NULL, 10);
 
-  int idx_reader = 0;
-  int idx_writer = 0;
-
-
-  threads_reader = malloc(nb_reader*sizeof(pthread_t));
-  threads_writer = malloc(nb_writer*sizeof(pthread_t));
+  threads= malloc(nb_thread*sizeof(pthread_t));
 
   //Initialisation de notre semaphore de lecture avec nb_reader jetons
 
@@ -142,36 +133,34 @@ int main(int argc, char **argv)
   init_priority_reader(struct_reader_writer);
 
 
-  while(idx_reader!=nb_reader && idx_writer!=nb_writer )
+  int nb_reader=0;
+  int nb_writer=0;
+
+  while(idx_thread!=nb_thread)
   {
-    if(hasard(0,1)&&idx_reader!=nb_reader)
+    if(hasard(0,1))
     {
-      pthread_create(&threads_reader[idx_reader],NULL,thread_reader,struct_reader_writer);
-      idx_reader++;
+      pthread_create(&threads[idx_thread],NULL,thread_reader,struct_reader_writer);
+      nb_reader++;
     }
     else
     {
-      pthread_create(&threads_writer[idx_writer],NULL,thread_writer,struct_reader_writer);
-      idx_writer++;
+      pthread_create(&threads[idx_thread],NULL,thread_writer,struct_reader_writer);
+      nb_writer++;
     }
+
+    idx_thread++;
   }
+  printf("%d%s\n",nb_reader," lecteurs créés." );
+  printf("%d%s\n",nb_writer," ecrivains créés." );
 
-  idx_reader = 0;
-  idx_writer = 0;
+  idx_thread = 0;
 
-  while(idx_reader!=nb_reader && idx_writer!=nb_writer)
+  while(idx_thread!=nb_thread)
   {
-    if(idx_reader!=nb_reader)
-    {
-      pthread_join(threads_reader[idx_reader],NULL);
-      idx_reader++;
-    }
+    pthread_join(threads[idx_thread],NULL);
 
-    if(idx_writer!=nb_writer)
-    {
-      pthread_join(threads_writer[idx_writer],NULL);
-      idx_writer++;
-    }
+    idx_thread++;
   }
 
   return 0;

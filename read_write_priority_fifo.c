@@ -7,9 +7,13 @@
 #include <string.h>
 #include <time.h>
 
-pthread_t *threads_writer;
-pthread_t *threads_reader;
+pthread_t *threads;
 
+
+int hasard(int inf, int sup) {
+   return inf +
+   (int)((double)(sup - inf + 1) * rand() / ((double)RAND_MAX + 1));
+}
 
 
 typedef struct struct_info_thread{
@@ -23,66 +27,95 @@ typedef struct struct_priority_fifo{
   pthread_cond_t  cond_wakeup_writers;
   pthread_cond_t  cond_wakeup_readers;
 
-  int is_reading;
   int identifiant_global;
+  int nb_reader;
+  int last_reader;
   struct_info_thread * info_thread;
 
 }struct_priority_fifo;
 
 
+struct_priority_fifo *struct_priority;
 
 
-
-void init_priority_writer(struct_priority_writer *struct_reader_writer)
+void init_priority_fifo()
 {
-  pthread_cond_init(&(struct_reader_writer->cond_wakeup_readers),NULL);
-  pthread_cond_init(&(struct_reader_writer->cond_wakeup_writers),NULL);
-  pthread_mutex_init(&(struct_reader_writer->mutex_variable),NULL);
-  struct_reader_writer->is_reading=0;
-  struct_reader_writer->identifiant_global=0;
+  struct_priority = malloc(sizeof(struct_priority_fifo));
+  pthread_cond_init(&(struct_priority->cond_wakeup_readers),NULL);
+  pthread_cond_init(&(struct_priority->cond_wakeup_writers),NULL);
+  pthread_mutex_init(&(struct_priority->mutex_variable),NULL);
+  struct_priority->last_reader=100;
+  struct_priority->nb_reader = 0;
+  struct_priority->identifiant_global=0;
 }
 
 
-void writer_lock(struct_priority_writer *struct_priority)
+void writer_lock(struct_info_thread *struct_personal)
 {
-
+  pthread_mutex_lock(&(struct_priority->mutex_variable));
+  int id = struct_personal->identifiant;
+  while(id!=struct_priority->identifiant_global||struct_priority->nb_reader>0)
+  {
+    pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
+    &(struct_priority->mutex_variable));
+  }
+  pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
-void write_msg()
+void write_msg(struct_info_thread *struct_personal)
 {
-  printf("%s\n","Je suis l'écrivain." );
-  sleep(2);
+  printf("%s%d\n", "Je suis ecrivain mon identifiant est: ",struct_personal->identifiant);
+  sleep(1);
 }
 
-void writer_unlock(struct_priority_writer *struct_priority)
+void writer_unlock(struct_info_thread *struct_personal)
 {
-
+  pthread_mutex_lock(&(struct_priority->mutex_variable));
+  struct_priority->identifiant_global++;
+  pthread_mutex_unlock(&(struct_priority->mutex_variable));
+  pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
 }
 
-void reader_lock(struct_priority_writer *struct_priority)
+void reader_lock(struct_info_thread *struct_personal)
 {
-  pthread_mutex_lock(&(struct_priority->mutex_variable))
-
+  pthread_mutex_lock(&(struct_priority->mutex_variable));
+  int id = struct_personal->identifiant;
+  if(struct_priority->nb_reader==0||struct_priority->last_reader+1==id)
+  {
+    while(struct_priority->identifiant_global!=id)
+      {
+          pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
+          &(struct_priority->mutex_variable));
+      }
+  }
+  struct_priority->nb_reader ++;
+  struct_priority->identifiant_global++;
+  pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
-void read_msg()
+void read_msg(struct_info_thread *struct_personal)
 {
-  printf("%s\n","Je suis le lecteur." );
-  sleep(0.5);
+    //pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
+    printf("%s%d\n", "Je suis lecteur mon identifiant est: ",struct_personal->identifiant);
+    sleep(1);
 }
 
-void reader_unlock(struct_priority_writer *struct_priority)
+void reader_unlock(struct_info_thread *struct_personal)
 {
-
+  pthread_mutex_lock(&(struct_priority->mutex_variable));
+  struct_priority->last_reader =  struct_personal->identifiant;
+  struct_priority->nb_reader --;
+  pthread_mutex_unlock(&(struct_priority->mutex_variable));
+  pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
 }
 
 void* thread_reader(void* data)
 {
-  struct_priority_writer* struct_priority;
-  struct_priority = (struct_priority_writer*) data;
-  reader_lock(struct_priority);
-  read_msg(struct_priority);
-  reader_unlock(struct_priority);
+  struct_info_thread* struct_personal;
+  struct_personal = (struct_info_thread*) data;
+  reader_lock(struct_personal);
+  read_msg(struct_personal);
+  reader_unlock(struct_personal);
 
   return NULL;
 }
@@ -90,84 +123,61 @@ void* thread_reader(void* data)
 
 void* thread_writer(void* data)
 {
-  struct_priority_writer* struct_priority;
-  struct_priority = (struct_priority_writer*) data;
-  writer_lock(struct_priority);
-  write_msg(struct_priority);
-  writer_unlock(struct_priority);
+  struct_info_thread* struct_personal;
+  struct_personal = (struct_info_thread*) data;
+  writer_lock(struct_personal);
+  write_msg(struct_personal);
+  writer_unlock(struct_personal);
 
   return NULL;
 }
 
 
-
 int main(int argc, char **argv)
 {
 
+  srand(time(NULL)) ;
+  int nb_thread = 0;
+  int idx_thread= 0;
 
-  int nb_reader;
-  int nb_writer;
-
-  if(argc<2)
+  if(argc<1)
   {
-    printf("%s","Merci d'entrer le nombre de thread lecteur puis le nombre" );
-    printf("%s\n"," de thread écrivain" );
+    printf("%s","Merci d'entrer le nombre de thread" );
     return 0;
   }
 
-  struct_priority_writer *struct_reader_writer;
-  struct_reader_writer= malloc(sizeof(struct_priority_writer));
+  init_priority_fifo();
 
-  init_priority_writer( struct_reader_writer);
+  nb_thread=(int)strtol(argv[1], (char **)NULL, 100);
 
-  nb_reader = 100;
-  nb_writer = 100;
-  //nb_reader=(int)strtol(argv[1], (char **)NULL, 100);
-  //nb_writer=(int)strtol(argv[2], (char **)NULL, 100);
+  threads = malloc(nb_thread*sizeof(pthread_t));
 
-  int idx_reader = 0;
-  int idx_writer = 0;
-
-
-  threads_reader = malloc(nb_reader*sizeof(pthread_t));
-  threads_writer = malloc(nb_writer*sizeof(pthread_t));
-
-
-  while(idx_reader!=nb_reader && idx_writer!=nb_writer )
+  while(idx_thread!=nb_thread)
   {
-    struct_reader_writer->info_thread=malloc(sizeof(struct_info_thread));
-    if(hasard(0,1)&&idx_reader!=nb_reader)
+    struct_info_thread *info_thread=malloc(sizeof(struct_info_thread));
+    if(hasard(0,1))
     {
-      pthread_create(&threads_reader[idx_reader],NULL,thread_reader,struct_reader_writer);
-      struct_reader_writer->info_thread->identifiant=idx_reader+idx_writer;
-      struct_reader_writer->info_thread->role=0;
-      idx_reader++;
+      info_thread->identifiant=idx_thread;
+      info_thread->role=0;
+      pthread_create(&threads[idx_thread],NULL,thread_reader,info_thread);
+      printf("%s%d\n", "[INIT]Je suis lecteur mon identifiant est: ",(idx_thread));
     }
     else
     {
-      pthread_create(&threads_writer[idx_writer],NULL,thread_writer,struct_reader_writer);
-      struct_reader_writer->info_thread->identifiant=idx_reader+idx_writer;
-      struct_reader_writer->info_thread->role=1;
-      idx_writer++;
+      info_thread->identifiant=idx_thread;
+      info_thread->role=1;
+      pthread_create(&threads[idx_thread],NULL,thread_writer,info_thread);
+      printf("%s%d\n", "[INIT]Je suis ecrivain mon identifiant est: ",(idx_thread));
     }
+    idx_thread++;
   }
 
-  idx_reader = 0;
-  idx_writer = 0;
+  idx_thread = 0;
 
-  while(idx_reader!=nb_reader && idx_writer!=nb_writer)
+  while(idx_thread!=nb_thread)
   {
-    if(idx_reader!=nb_reader)
-    {
-      pthread_join(threads_reader[idx_reader],NULL);
-      idx_reader++;
-    }
-
-    if(idx_writer!=nb_writer)
-    {
-      pthread_join(threads_writer[idx_writer],NULL);
-      idx_writer++;
-    }
+      pthread_join(threads[idx_thread],NULL);
+      idx_thread++;
   }
 
   return 0;
