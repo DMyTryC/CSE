@@ -25,12 +25,17 @@ typedef struct struct_priority_reader{
 
 }struct_priority_reader;
 
+int hasard(int inf, int sup) {
+   return inf +
+   (int)((double)(sup - inf + 1) * rand() / ((double)RAND_MAX + 1));
+}
+
 
 
 void init_priority_reader(struct_priority_reader *struct_priority)
 {
   sem_init(&(struct_priority->sem_writers), 0, 1);
-  struct_priority->mutex_variable=PTHREAD_MUTEX_INITIALIZER;
+  pthread_mutex_init(&(struct_priority->mutex_variable),NULL);
   struct_priority->nb_readers=0;
 }
 
@@ -38,7 +43,7 @@ void init_priority_reader(struct_priority_reader *struct_priority)
 
 void writer_lock(struct_priority_reader *struct_priority)
 {
-  sem_wait(struct_priority->sem_writers);
+  sem_wait(&(struct_priority->sem_writers));
 }
 
 void write_msg()
@@ -49,17 +54,17 @@ void write_msg()
 
 void writer_unlock(struct_priority_reader *struct_priority)
 {
-  sem_post(struct_priority->sem_writers);
+  sem_post(&(struct_priority->sem_writers));
 }
 
 void reader_lock(struct_priority_reader *struct_priority)
 {
-  pthread_mutex_lock(struct_priority->mutex_variable);
+  pthread_mutex_lock(&(struct_priority->mutex_variable));
   struct_priority->nb_readers++;
   if(struct_priority->nb_readers==1)
-    sem_wait(struct_priority->sem_writers);
+    sem_wait(&(struct_priority->sem_writers));
 
-  pthread_mutex_unlock(struct_priority->mutex_variable);
+  pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
 void read_msg()
@@ -70,11 +75,11 @@ void read_msg()
 
 void reader_unlock(struct_priority_reader *struct_priority)
 {
-    pthread_mutex_lock(struct_priority->mutex_variable);
+    pthread_mutex_lock(&(struct_priority->mutex_variable));
     struct_priority->nb_readers--;
       if(struct_priority->nb_readers==0)
-        sem_post(struct_priority->sem_writers);
-    pthread_mutex_unlock(struct_priority->mutex_variable);
+        sem_post(&(struct_priority->sem_writers));
+    pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
 
@@ -105,7 +110,7 @@ void* thread_writer(void* data)
 
 int main(int argc, char **argv)
 {
-
+  srand(time(NULL)) ;
   int nb_reader;
   int nb_writer;
 
@@ -117,9 +122,10 @@ int main(int argc, char **argv)
   }
 
 
-
-  nb_reader=(int)strtol(argv[1], (char **)NULL, 10);
-  nb_writer=(int)strtol(argv[2], (char **)NULL, 10);
+  nb_reader = 100;
+  nb_writer = 100;
+  //nb_reader=(int)strtol(argv[1], (char **)NULL, 10);
+  //nb_writer=(int)strtol(argv[2], (char **)NULL, 10);
 
   int idx_reader = 0;
   int idx_writer = 0;
@@ -138,14 +144,14 @@ int main(int argc, char **argv)
 
   while(idx_reader!=nb_reader && idx_writer!=nb_writer )
   {
-    if(idx_reader!=nb_reader)
+    if(hasard(0,1)&&idx_reader!=nb_reader)
     {
-      pthread_create(&threads_reader[idx_reader],NULL,thread_read_priority_reader,NULL);
+      pthread_create(&threads_reader[idx_reader],NULL,thread_reader,struct_reader_writer);
       idx_reader++;
     }
-    if(idx_writer!=nb_writer)
+    else
     {
-      pthread_create(&threads_writer[idx_writer],NULL,thread_write_priority_reader,struct_reader_writer);
+      pthread_create(&threads_writer[idx_writer],NULL,thread_writer,struct_reader_writer);
       idx_writer++;
     }
   }
