@@ -18,8 +18,6 @@ int hasard(int inf, int sup) {
 
 typedef struct struct_info_thread{
   int identifiant;
-  int role;// O -> lecteur 1 -> Ecrivain
-
 }struct_info_thread;
 
 typedef struct struct_priority_fifo{
@@ -38,6 +36,11 @@ typedef struct struct_priority_fifo{
 struct_priority_fifo *struct_priority;
 
 
+//Tableau contenant pour chaque index le rôle de chaque identifiant
+//On a 0 pour lecteur, 1 pour écrivain
+
+
+
 void init_priority_fifo()
 {
   struct_priority = malloc(sizeof(struct_priority_fifo));
@@ -50,12 +53,36 @@ void init_priority_fifo()
 }
 
 
+//Fonction permettant de savoir si un thread écrivain peut lire si une lecture est déjà
+//En cours afin de permettre un accès parallèle au fichier
+/*int keep_reading(int id_global, int idx)
+{
+  printf("%s%d%s%d","Keep Reading ",idx, "avec i =",id_global );
+  if(id_global==idx)
+    return 0;
+  while(id_global!=idx)
+  {
+    if(array_of_role_per_thread[id_global])
+    {
+        printf("%s%d\n"," Retour : ",0);
+        return 0;
+    }
+    id_global++;
+  }
+  printf("%s%d\n"," Retour : ",1);
+  return 1;
+}
+DEPRECATED
+*/
+
+
 void writer_lock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
   int id = struct_personal->identifiant;
   while(id!=struct_priority->identifiant_global||struct_priority->nb_reader>0)
   {
+    pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
     pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
     &(struct_priority->mutex_variable));
   }
@@ -80,14 +107,13 @@ void reader_lock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
   int id = struct_personal->identifiant;
-  if(struct_priority->nb_reader==0||struct_priority->last_reader+1!=id)
-  {
-    while(struct_priority->identifiant_global!=id)
-      {
-          pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
-          &(struct_priority->mutex_variable));
-      }
-  }
+
+  while(struct_priority->identifiant_global!=id)
+    {
+        pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
+        &(struct_priority->mutex_variable));
+    }
+
   struct_priority->nb_reader ++;
   struct_priority->identifiant_global++;
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
@@ -95,7 +121,6 @@ void reader_lock(struct_info_thread *struct_personal)
 
 void read_msg(struct_info_thread *struct_personal)
 {
-    //pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
     printf("%s%d\n", "Je suis lecteur mon identifiant est: ",struct_personal->identifiant);
     sleep(1);
 }
@@ -108,6 +133,7 @@ void reader_unlock(struct_info_thread *struct_personal)
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
   pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
 }
+
 
 void* thread_reader(void* data)
 {
@@ -152,20 +178,19 @@ int main(int argc, char **argv)
   printf("%d\n",nb_thread );
   threads = malloc(nb_thread*sizeof(pthread_t));
 
+
   while(idx_thread!=nb_thread)
   {
     struct_info_thread *info_thread=malloc(sizeof(struct_info_thread));
     if(hasard(0,1))
     {
       info_thread->identifiant=idx_thread;
-      info_thread->role=0;
       pthread_create(&threads[idx_thread],NULL,thread_reader,info_thread);
       printf("%s%d\n", "[INIT]Je suis lecteur mon identifiant est: ",(idx_thread));
     }
     else
     {
       info_thread->identifiant=idx_thread;
-      info_thread->role=1;
       pthread_create(&threads[idx_thread],NULL,thread_writer,info_thread);
       printf("%s%d\n", "[INIT]Je suis ecrivain mon identifiant est: ",(idx_thread));
     }
