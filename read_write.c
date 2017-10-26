@@ -8,14 +8,20 @@
 #include <time.h>
 
 
+// DONNEES DU PROGRAMME
 
-
-
-
+// threads_writers : Adresse vers les threads des writers
+// threads_reader : Adresse vers les threads des readers
 pthread_t *threads_writer;
 pthread_t *threads_reader;
 
-
+// Structure modelisant la situation pour la priorite des writers :
+// mutex_variable : un mutex pour un acces protege, utilise pour changer le nombre des readers actuel
+// cond_wakeup_writers : une condition pour pouvoir reveiller les writers en cas qu'ils peuvent ecrire
+// cond_wakeup_readers : une condition pour pouvoir reveiller les readers en cas qu'ils peuvent lire
+// nb_readers : le nombre des lecteurs actuels
+// nb_potential_writers : variable pour bloquer la lecture
+// current_writing : variable pour savoir si un writer est en train d'ecrire
 typedef struct writer_reader_struct_priority_writer{
   pthread_mutex_t mutex_variable      = PTHREAD_MUTEX_INITIALIZER;
   pthread_cond_t  cond_wakeup_writers = PTHREAD_COND_INITIALIZER;
@@ -27,17 +33,22 @@ typedef struct writer_reader_struct_priority_writer{
 
 }writer_reader_struct_priority_writer;
 
-
+// Structure modelisant la situation pour la priorite des readers :
+// mutex_variable : un mutex pour un acces protege, utilise pour changer le nombre des readers actuel
+// nb_readers : le nombre des lecteurs actuels
+// sem_writers : un semaphore pour gerer les lecteurs prioritaires
 typedef struct writer_reader_struct_priority_reader{
   pthread_mutex_t mutex_variable      = PTHREAD_MUTEX_INITIALIZER;
   int nb_readers;
 
-  //Semaphore utilisé pour les lecteurs prioritaires
-  sem_t sem_writers;
-
+  sem_t sem_writers;  
 }writer_reader_struct_priority_reader;
 
+// FONCTIONS DU PROGRAMME
 
+// La lecture d'un fichier de donnees :
+// On ouvre un fichier "database.txt" en mode lecture
+// On lit le fichier en faisant des putchar(c) pour chaque caractere
 void read_data()
 {
   printf("%s\n","DEBUT DE LECTURE" );
@@ -54,9 +65,9 @@ void read_data()
   }
 }
 
-
-
-
+// L'ecriture d'un fichier de donnees :
+// On ouvre un fichier "database.txt" en mode ecriture
+// On fprintf ce qu'on a lit dans le fichier
 void write_data(void* data)
 {
   char *data_char;
@@ -68,6 +79,11 @@ void write_data(void* data)
   fclose(database_write);
 }
 
+// Lecture avec priorite du reader :
+// On incremente le nombre des lecteurs actuels
+// On lit le fichier
+// On decremente le nombre des lecteurs actuels 
+//   en envoyant un signal aux writers si le nombre des lecteurs est egal a 0
 void* thread_read_priority_reader()
 {
   pthread_mutex_lock(&mutex_variable);
@@ -89,7 +105,8 @@ void* thread_read_priority_reader()
   return NULL;
 }
 
-
+// Ecriture avec priorite du reader :
+// On attend 
 void* thread_write_priority_reader(void* data)
 {
   sem_wait(&sem_writers);

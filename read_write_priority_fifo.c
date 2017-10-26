@@ -7,19 +7,26 @@
 #include <string.h>
 #include <time.h>
 
+
+// DONNEES DU PROGRAMME
+
+// threads : Adresse vers les threads (les writers et lecteurs)
 pthread_t *threads;
 
-
-int hasard(int inf, int sup) {
-   return inf +
-   (int)((double)(sup - inf + 1) * rand() / ((double)RAND_MAX + 1));
-}
-
-
+// Structure pour l'information des threads :
+// identifiant : un identifiant pour la position dans la liste fifo
 typedef struct struct_info_thread{
   int identifiant;
 }struct_info_thread;
 
+// Structure modelisant le cas de first-in-first-out :
+// mutex_variable : un mutex pour un acces protege, utilise pour changer le nombre des readers actuel
+// cond_wakeup_writers : une condition pour pouvoir reveiller les writers en cas qu'ils peuvent ecrire
+// cond_wakeup_readers : une condition pour pouvoir reveiller les readers en cas qu'ils peuvent lire
+// identifiant_global : un identifiant pour la position dans la liste fifo
+// nb_reader : le nombre des lecteurs actuels 
+// last_reader : le reader precedent dans la liste fifo
+// info_thread : une structure pour l'information de chaque thread
 typedef struct struct_priority_fifo{
   pthread_mutex_t mutex_variable;
   pthread_cond_t  cond_wakeup_writers;
@@ -32,15 +39,18 @@ typedef struct struct_priority_fifo{
 
 }struct_priority_fifo;
 
-
+// Une pointeur vers une structure fifo
 struct_priority_fifo *struct_priority;
 
 
-//Tableau contenant pour chaque index le rôle de chaque identifiant
-//On a 0 pour lecteur, 1 pour écrivain
+// FONCTIONS DU PROGRAMME
 
-
-
+// Intialisation de la structure pour fifo
+// Allocation un espace memoire pour la structure
+// Initialisation des conditions et du mutex
+// Initialisation du dernier reader a 100
+// Initialisation du nombre des readers actuels a 0
+// Initialisation de la position globale dans la liste a 0
 void init_priority_fifo()
 {
   struct_priority = malloc(sizeof(struct_priority_fifo));
@@ -52,6 +62,11 @@ void init_priority_fifo()
   struct_priority->identifiant_global=0;
 }
 
+// Fonction random
+int hasard(int inf, int sup) {
+   return inf +
+   (int)((double)(sup - inf + 1) * rand() / ((double)RAND_MAX + 1));
+}
 
 //Fonction permettant de savoir si un thread écrivain peut lire si une lecture est déjà
 //En cours afin de permettre un accès parallèle au fichier
@@ -75,7 +90,10 @@ void init_priority_fifo()
 DEPRECATED
 */
 
-
+// Bloquage du writer pour attendre son tour ou que le nombre des lecteurs actuels est egal a 0 :
+// Verification qu'une des deux conditions soit correcte
+// Dans ce cas on reveille tous les readers
+// Et on attend d'etre reveille par un reader pour reverifier les conditions
 void writer_lock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
@@ -89,12 +107,16 @@ void writer_lock(struct_info_thread *struct_personal)
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
+// Ecriture du message pour un writer
 void write_msg(struct_info_thread *struct_personal)
 {
   printf("%s%d\n", "Je suis ecrivain mon identifiant est: ",struct_personal->identifiant);
   sleep(1);
 }
 
+// Avancement de la liste pour un writer :
+// Incrementation de la position dans la liste
+// On reveille tous les readers
 void writer_unlock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
@@ -103,6 +125,10 @@ void writer_unlock(struct_info_thread *struct_personal)
   pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
 }
 
+// Bloquage du reader pour attendre son tour :
+// Verification que la condition soit vraie et dans ce cas
+// On attend d'etre reveille par un writer et on re-teste
+// En cas contraire, on incremente le nombre des readers et on incremente la position
 void reader_lock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
@@ -119,12 +145,16 @@ void reader_lock(struct_info_thread *struct_personal)
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
+// Ecriture du message par un reader
 void read_msg(struct_info_thread *struct_personal)
 {
     printf("%s%d\n", "Je suis lecteur mon identifiant est: ",struct_personal->identifiant);
     sleep(1);
 }
 
+// Avancement de la liste pour un reader :
+// Changement du dernier lecteur pour dire qu'on etait le dernier
+// Decrementation du nombre des lecteurs actuels
 void reader_unlock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
@@ -134,7 +164,10 @@ void reader_unlock(struct_info_thread *struct_personal)
   pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
 }
 
-
+// Le fonctionnement d'un thread reader :
+// Bloquage d'un reader pour attendre son tour
+// Ecriture du message quand c'est son tour 
+// Avancement de la liste d'attente
 void* thread_reader(void* data)
 {
   struct_info_thread* struct_personal;
@@ -146,7 +179,10 @@ void* thread_reader(void* data)
   return NULL;
 }
 
-
+// Le fonctionnement d'un thread writer :
+// Bloquage d'un writer pour attendre son tour
+// Ecriture du message quand c'est son tour 
+// Avancement de la liste d'attente
 void* thread_writer(void* data)
 {
   struct_info_thread* struct_personal;
@@ -159,26 +195,30 @@ void* thread_writer(void* data)
 }
 
 
+// PROGRAMME PRINCIPALE
+
 int main(int argc, char **argv)
 {
 
-  srand(time(NULL)) ;
-  int nb_thread = 0;
+  srand(time(NULL)) ; // Intialisation de la seed pour les randoms
+  int nb_thread = 0; 
   int idx_thread= 0;
 
+  // Verification du nombre d'arguments 
   if(argc<1)
   {
     printf("%s","Merci d'entrer le nombre de thread" );
     return 0;
   }
 
+  // Initialisation
   init_priority_fifo();
 
   nb_thread=(int)strtol(argv[1], (char  **)NULL, 10);
   printf("%d\n",nb_thread );
   threads = malloc(nb_thread*sizeof(pthread_t));
 
-
+  // Creation des threads
   while(idx_thread!=nb_thread)
   {
     struct_info_thread *info_thread=malloc(sizeof(struct_info_thread));
@@ -199,6 +239,7 @@ int main(int argc, char **argv)
 
   idx_thread = 0;
 
+  // Fin de lecture
   while(idx_thread!=nb_thread)
   {
       pthread_join(threads[idx_thread],NULL);
