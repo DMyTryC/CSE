@@ -15,8 +15,10 @@ pthread_t *threads;
 
 // Structure pour l'information des threads :
 // identifiant : un identifiant pour la position dans la liste fifo
-typedef struct struct_info_thread{
+typedef struct struct_info_thread
+{
   int identifiant;
+  pthread_cond_t cond;
 }struct_info_thread;
 
 // Structure modelisant le cas de first-in-first-out :
@@ -35,6 +37,7 @@ typedef struct struct_priority_fifo{
   int identifiant_global;
   int nb_reader;
   int last_reader;
+  clock_t start;
   struct_info_thread * info_thread;
 
 }struct_priority_fifo;
@@ -60,6 +63,7 @@ void init_priority_fifo()
   struct_priority->last_reader=100;
   struct_priority->nb_reader = 0;
   struct_priority->identifiant_global=0;
+  struct_priority->start = clock();
 }
 
 // Fonction random
@@ -96,22 +100,17 @@ DEPRECATED
 // Et on attend d'etre reveille par un reader pour reverifier les conditions
 void writer_lock(struct_info_thread *struct_personal)
 {
-  pthread_mutex_lock(&(struct_priority->mutex_variable));
-  int id = struct_personal->identifiant;
-  while(id!=struct_priority->identifiant_global||struct_priority->nb_reader>0)
-  {
-    pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
-    pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
-    &(struct_priority->mutex_variable));
-  }
-  pthread_mutex_unlock(&(struct_priority->mutex_variable));
+
+
 }
 
 // Ecriture du message pour un writer
 void write_msg(struct_info_thread *struct_personal)
 {
-  printf("%s%d\n", "Je suis ecrivain mon identifiant est: ",struct_personal->identifiant);
-  sleep(1);
+  struct_personal->diff= clock() - struct_priority->start;
+  int msec = struct_personal->diff * 1000 / CLOCKS_PER_SEC;
+  printf("%s%d%s%f%s%f%s\n", "Je suis ecrivain mon identifiant est: ",struct_personal->identifiant, " Temps: ",msec/1000.0, " ms et ", msec/1000000.0, " ns.");
+  sleep(0.3);
 }
 
 // Avancement de la liste pour un writer :
@@ -119,10 +118,8 @@ void write_msg(struct_info_thread *struct_personal)
 // On reveille tous les readers
 void writer_unlock(struct_info_thread *struct_personal)
 {
-  pthread_mutex_lock(&(struct_priority->mutex_variable));
-  struct_priority->identifiant_global++;
-  pthread_mutex_unlock(&(struct_priority->mutex_variable));
-  pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
+
+
 }
 
 // Bloquage du reader pour attendre son tour :
@@ -131,25 +128,17 @@ void writer_unlock(struct_info_thread *struct_personal)
 // En cas contraire, on incremente le nombre des readers et on incremente la position
 void reader_lock(struct_info_thread *struct_personal)
 {
-  pthread_mutex_lock(&(struct_priority->mutex_variable));
-  int id = struct_personal->identifiant;
 
-  while(struct_priority->identifiant_global!=id)
-    {
-        pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
-        &(struct_priority->mutex_variable));
-    }
 
-  struct_priority->nb_reader ++;
-  struct_priority->identifiant_global++;
-  pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
 // Ecriture du message par un reader
 void read_msg(struct_info_thread *struct_personal)
 {
-    printf("%s%d\n", "Je suis lecteur mon identifiant est: ",struct_personal->identifiant);
-    sleep(1);
+  struct_personal->diff= clock() - struct_priority->start;
+  int msec = struct_personal->diff * 1000 / CLOCKS_PER_SEC;
+  printf("%s%d%s%f%s%f%s\n", "Je suis lecteur mon identifiant est: ",struct_personal->identifiant, " Temps: ",msec/1000.0, " ms et ", msec/1000000.0, " ns.");
+  sleep(0.3);
 }
 
 // Avancement de la liste pour un reader :
@@ -157,11 +146,7 @@ void read_msg(struct_info_thread *struct_personal)
 // Decrementation du nombre des lecteurs actuels
 void reader_unlock(struct_info_thread *struct_personal)
 {
-  pthread_mutex_lock(&(struct_priority->mutex_variable));
-  struct_priority->last_reader =  struct_personal->identifiant;
-  struct_priority->nb_reader --;
-  pthread_mutex_unlock(&(struct_priority->mutex_variable));
-  pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
+
 }
 
 // Le fonctionnement d'un thread reader :
