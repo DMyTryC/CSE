@@ -50,6 +50,8 @@ int   in_reader_block(int idx);
 //With struct_personal, the struct to initialize
 void  func_distrib_tickets(int type, struct_info_thread* struct_personal);
 
+void wakeup_last();
+
 void* thread_writer(void* data);
 void writer_lock(struct_info_thread *struct_personal);
 void write_msg(struct_info_thread *struct_personal);

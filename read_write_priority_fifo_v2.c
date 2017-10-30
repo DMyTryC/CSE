@@ -60,11 +60,6 @@ Dans le bloc de lecteur courant, si c'est le cas, on renvoi 1, sinon, 0
 int in_reader_block(int id_ticket)
 {
   int id_global = struct_priority->identifiant_global;
-  if((id_global+1)==(struct_priority->nb_thread*struct_priority->nb_iterations))
-    if(array_of_role_per_ticket[id_global+1])
-    {
-        return 1;
-    }
   while(id_global!=id_ticket)
   {
     if(!array_of_role_per_ticket[id_global])
@@ -88,13 +83,28 @@ void func_distrib_tickets(int type, struct_info_thread* struct_personal)
   pthread_mutex_unlock(&(struct_priority->mutex_distrib));
 }
 
+
+//Fonction utilisée pour réveiller le dernier thread
+void wakeup_last()
+{
+  /*
+  Si le dernier thread est un écrivain, et que le thread avant lui est aussi
+  Un écrivain il faudra provoquer cette fonction pour réveiller ce dernier écrivain,
+  sinon il ne sera jamais réveillé et attendra éternellement
+  */
+
+  /*
+  De même dans le cas où le dernier thread est un écrivain, et que le thread
+  ayant acquéri le verrou avant lui est un lecteur. L'écrivain ne sera aussi
+  jamais réveillé et attendra éternellement.
+  */
+  if(struct_priority->identifiant_global+1==
+    (struct_priority->nb_thread*struct_priority->nb_iterations))
+    pthread_cond_signal(&(struct_priority->cond_wakeup_readers));
+}
+
 //FONCTIONS EN LIEN AVEC ECRIVAIN//
 
-
-// Le fonctionnement d'un thread writer :
-// Bloquage d'un writer pour attendre son tour
-// Ecriture du message quand c'est son tour
-// Avancement de la liste d'attente
 void* thread_writer(void* data)
 {
   struct_info_thread* struct_personal;
@@ -113,34 +123,49 @@ void* thread_writer(void* data)
 
 void writer_lock(struct_info_thread *struct_personal)
 {
+  //Acquisition du verrou
   pthread_mutex_lock(&(struct_priority->mutex_variable));
   int id = struct_personal->id_ticket;
+  /*
+  Tant que le ticket appelé ne correspond pas à notre ticket
+  Ou qu'une lecture est en cours
+  */
   while(id!=struct_priority->identifiant_global||struct_priority->nb_reader>0)
   {
+    /*
+    Si l'on se trouve dans cette boucle, cela veut dire qu'une lecture est en
+    cours ou que ce n'est pas encore mon tour.
+    Je réveil tous mes tickets en attente
+    */
+
     pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
+
+    //Puis j'attend que l'on me réveil
     pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
     &(struct_priority->mutex_variable));
   }
-
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
-// Ecriture du message pour un writer
+// Action d'ecriture effectuée par un écrivain
 void write_msg(struct_info_thread *struct_personal)
 {
-  printf("%s%d%s%d%s\n", KRED,struct_personal->identifiant, "-", struct_personal->id_ticket,KNRM " ");
-  dodo(2);
+  printf("%s%d%s%d%s\n", KRED,struct_personal->identifiant, "-",
+  struct_personal->id_ticket,KNRM " ");
+  sleep(1);
 }
 
-// Avancement de la liste pour un writer :
-// Incrementation de la position dans la liste
-// On reveille tous les readers
+
 void writer_unlock(struct_info_thread *struct_personal)
 {
   pthread_mutex_lock(&(struct_priority->mutex_variable));
+  /*
+  Incrémentation du ticket fait lors de la libération du verrou car
+  l'écriture est exclusive entre les lecteurs et les écrivains
+  */
   struct_priority->identifiant_global++;
-  if(struct_priority->identifiant_global+1==(struct_priority->nb_thread*struct_priority->nb_iterations))
-    pthread_cond_signal(&(struct_priority->cond_wakeup_readers));
+
+  wakeup_last();
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
@@ -150,64 +175,84 @@ void writer_unlock(struct_info_thread *struct_personal)
 
 //FONCTIONS EN LIEN AVEC LECTEURS//
 
-// Bloquage du reader pour attendre son tour :
-// Verification que la condition soit vraie et dans ce cas
-// On attend d'etre reveille par un writer et on re-teste
-// En cas contraire, on incremente le nombre des readers et on incremente la position
-
-// Le fonctionnement d'un thread reader :
-// Bloquage d'un reader pour attendre son tour
-// Ecriture du message quand c'est son tour
-// Avancement de la liste d'attente
+//Fonction threadé pour nos lecteurs
 void* thread_reader(void* data)
 {
+  //Récupération de la structure liée à chaque lecteur
   struct_info_thread* struct_personal;
   struct_personal = (struct_info_thread*) data;
   for (int i = 0; i < struct_priority->nb_iterations; i++)
   {
+    //Fonction donnant un ticket à chaque passage
+    //Premier argument 1 ou 0, 1 pour lecteur, 0 pour écrivain
     func_distrib_tickets(1,struct_personal);
+
     reader_lock(struct_personal);
     read_msg(struct_personal);
     reader_unlock(struct_personal);
   }
   free(data);
-
   return NULL;
 }
 
 
+//Fonction de lock pour nos lecteurs
 void reader_lock(struct_info_thread *struct_personal)
 {
+  //Acquisition du mutex
   pthread_mutex_lock(&(struct_priority->mutex_variable));
   int id = struct_personal->id_ticket;
-  while(struct_priority->identifiant_global!=id||!in_reader_block(id))
+
+  /*
+  Tant que nous ne sommes pas le ticket appelé, ou que l'on est pas dans un
+  bloc de lecteur..
+  */
+  while(!in_reader_block(id)||struct_priority->identifiant_global!=id)
   {
+      /*
+      Réveil de tous nos tickets en attente.
+      Broadcast car on ne sait pas si le ticket ayant le numéro du ticket
+      appelé est le premier à attendre cette condition.
+      */
       pthread_cond_broadcast(&(struct_priority->cond_wakeup_readers));
+
+      //Puis attente que l'on nous réveille
       pthread_cond_wait(&(struct_priority->cond_wakeup_readers),
       &(struct_priority->mutex_variable));
   }
 
+  //Si c'est notre tour, incrémentation du nombre de lecteur courant
   struct_priority->nb_reader ++;
+  /*
+  Incrémentation du ticket appelé lors de l'acquisition de notre verrou
+  Car l'on veut autoriser la possibilité que les lecteurs d'un même bloc lisent
+  en même temps.
+  */
   struct_priority->identifiant_global++;
+
+  wakeup_last();
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
-// Ecriture du message par un reader
+// Action de lecture par un lecteur
 void read_msg(struct_info_thread *struct_personal)
 {
-    printf("%s%d%s%d%s\n", KGRN,struct_personal->identifiant, "*", struct_personal->id_ticket,KNRM " ");
-    dodo(2);
+    printf("%s%d%s%d%s\n", KGRN,struct_personal->identifiant,
+    "*", struct_personal->id_ticket,KNRM " ");
+    sleep(1);
 }
 
-// Avancement de la liste pour un reader :
-// Changement du dernier lecteur pour dire qu'on etait le dernier
-// Decrementation du nombre des lecteurs actuels
+
 void reader_unlock(struct_info_thread *struct_personal)
 {
+  //Acquisition du verrou
   pthread_mutex_lock(&(struct_priority->mutex_variable));
+
+  //Décrémentation du nombre de reader courant
   struct_priority->nb_reader --;
-  if(struct_priority->identifiant_global+1==(struct_priority->nb_thread*struct_priority->nb_iterations))
-    pthread_cond_signal(&(struct_priority->cond_wakeup_readers));
+
+
+  wakeup_last();
   pthread_mutex_unlock(&(struct_priority->mutex_variable));
 }
 
@@ -264,9 +309,6 @@ int main(int argc, char **argv)
     info_thread->identifiant=idx;
     pthread_create(&threads[idx],NULL,thread_writer,info_thread);
   }
-
-
-  //array_of_role_per_ticket[idx_thread]=0;
 
   for (idx_thread = 0; idx_thread < nb_thread; idx_thread++)
     pthread_join(threads[idx_thread],NULL);
