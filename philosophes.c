@@ -10,26 +10,19 @@
 
 // DONNEES DU PROGRAMME
 
-// Structure modélisant une baguette :
-// Un booléen pour la disponibilité de la baguette
-// Un mutex pour un accès protégé au booléen de la baguette
-
-typedef struct {
-    bool disponible ;
-    pthread_mutex_t m ;
-} baguette ;
-
 // Structure modélisant un philosophe :
 // Un numéro unique pour le distinguer
 // Une référence vers sa baguette gauche
 // Une référence vers sa baguette droite
 // Le nombre de portions de riz qu'il a englouties actuellement
+// Un mutex pour un accès exclusif aux variables globales
 
 typedef struct {
     unsigned num ;
-    baguette * bg ;
-    baguette * bd ;
+    bool* bg ;
+    bool* bd ;
     unsigned riz ;
+    pthread_mutex_t m ;
 } philosophe ;
 
 // Définition du type de la routine que l'on passera aux threads (= philosophes)
@@ -45,9 +38,11 @@ void fonction_philosophe_sem (philosophe *p) ;
 
 unsigned nb_philosophes ; // Nombre de philosophes prenant part au dîner
 unsigned nb_portions ; // Nombre de portions qu'ils doivent manger
+unsigned cpt_mangeurs = 0; // Sert uniquement dans l'utilisation d'une condition
+unsigned cpt_philos ; // Sert uniquement dans l'utilisation d'une condition
 fonction_philosophe_t *fp ; // Adresse de la routine passée aux threads
 philosophe* philosophes ; // Ensemble des philosophes prenant part au dîner
-baguette* baguettes ; // Emsemble de baguettes disposées sur la table
+bool* baguettes ; // Emsemble de baguettes disposées sur la table
 
 // Artefacts utilisés pour l'accès exclusif aux baguettes
 
@@ -71,11 +66,9 @@ int hasard(int inf, int sup) {
 // Elles sont toutes disponibles dès le départ
 // Initialisation du mutex associé
 
-void init_baguettes (baguette* baguettes) {
-    for (int i = 0 ; i < nb_philosophes ; i++) {
-        baguettes[i].disponible = true ;
-        pthread_mutex_init(&baguettes[i].m, NULL) ;
-    }
+void init_baguettes (bool* baguettes) {
+    for (int i = 0 ; i < nb_philosophes ; i++)
+        baguettes[i] = true ;
 }
 
 // Initialisation des philosophes :
@@ -83,12 +76,13 @@ void init_baguettes (baguette* baguettes) {
 // On leur associe deux baguettes placées de chaque côté du philosophe
 // Et au départ, ils n'ont mangé aucune portion de leur riz
 
-void init_philosophes (philosophe* pilosophes, baguette* baguettes) {
+void init_philosophes (philosophe* philosophes, bool* baguettes) {
     for (int i = 0 ; i < nb_philosophes ; i++) {
         philosophes[i].num = i+1 ;
         philosophes[i].bg = &baguettes[i] ;
         philosophes[i].bd = &baguettes[(i+1)%nb_philosophes] ;
         philosophes[i].riz = 0 ;
+        pthread_mutex_init(&philosophes[i].m, NULL) ;
     }
 }
 
@@ -101,14 +95,12 @@ void init_philosophes (philosophe* pilosophes, baguette* baguettes) {
 
 bool pret_a_manger (philosophe* p) {
     bool b ;
-    pthread_mutex_lock(&p->bg->m) ;
-    pthread_mutex_lock(&p->bd->m) ;
-    if((b = p->bg->disponible && p->bd->disponible)) {
-        p->bg->disponible = false ;
-        p->bd->disponible = false ;
+    pthread_mutex_lock(&p->m) ;
+    if((b = *p->bg && *p->bd)) {
+        *p->bg = false ;
+        *p->bd = false ;
     }
-    pthread_mutex_unlock(&p->bd->m) ;
-    pthread_mutex_unlock(&p->bg->m) ;
+    pthread_mutex_unlock(&p->m) ;
     return b  ;
 }
 
@@ -122,12 +114,10 @@ bool pret_a_manger (philosophe* p) {
 void manger (philosophe* p) {
     sleep(1) ;
     p->riz++ ;
-    pthread_mutex_lock(&p->bg->m) ;
-    pthread_mutex_lock(&p->bd->m) ;
-    p->bg->disponible = true ;
-    p->bd->disponible = true ;
-    pthread_mutex_unlock(&p->bd->m) ;
-    pthread_mutex_unlock(&p->bg->m) ;
+    pthread_mutex_lock(&p->m) ;
+    *p->bg = true ;
+    *p->bd = true ;
+    pthread_mutex_unlock(&p->m) ;
 }
 
 // Phase de méditation :
@@ -138,7 +128,7 @@ void manger (philosophe* p) {
 
 int penser (void) {
     int t ;
-    sleep(t = hasard(0,3)) ;
+    sleep(t = hasard(1,3)) ;
     return t ;
 }
 
@@ -169,13 +159,18 @@ void* fonction_philosophe (void *p_P) {
 // de moniteur. Pas d'interblocage ni de famine obtenu lors des tests a priori
 
 void fonction_philosophe_cond (philosophe *p) {
-    pthread_mutex_lock(&m) ;
-    while (!pret_a_manger(p))
-        pthread_cond_wait(&c, &m) ;
-    manger(p) ;
-    pthread_cond_signal(&c) ;
-    pthread_mutex_unlock(&m);
-    printf("Le philosophe %d a mangé %d fois\n", p->num, p->riz) ;
+    if (pret_a_manger(p)) {
+        pthread_mutex_lock(&m) ;
+        while (cpt_mangeurs > cpt_philos)
+            pthread_cond_wait(&c, &m) ;
+        cpt_mangeurs++ ;
+        pthread_cond_signal(&c) ;
+        pthread_mutex_unlock(&m);
+        manger(p) ;
+        printf("Le philosophe %d a mangé %d fois\n", p->num, p->riz) ;
+        cpt_mangeurs-- ;
+        if (p->riz == nb_portions) cpt_philos-- ;
+    }
 }
 
 // Routine du philosophe utilisant un sémaphore :
@@ -223,6 +218,7 @@ int main (int argc, char **argv) {
         }
 
         nb_philosophes = arg1 ;
+        cpt_philos = arg1 ;
         nb_portions = arg2 ;
 
         // Initialisation de la routine choisie et du sémaphore si c'est ce
